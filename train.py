@@ -4,12 +4,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.linear_model import Ridge
 import joblib
 import json
 import os
 
 # Configuration
-MODEL_TYPE = "LinearRegression"
+MODEL_TYPE = "Ridge"
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 APPLY_SCALING = True
@@ -39,7 +40,7 @@ def main():
         print("Applied StandardScaler preprocessing")
 
     # Train model
-    model = LinearRegression()
+    model = Ridge(alpha=0.1)
     model.fit(X_train, y_train)
     print("Model training completed")
 
