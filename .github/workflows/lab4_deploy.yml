@@ -21,25 +21,17 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install pandas numpy scikit-learn joblib
 
       - name: Run Training Script
         run: python train.py
-
-      - name: Capture Metrics
-        id: metrics
-        run: |
-          MSE=$(jq -r '.mse' metrics.json || echo "1.0")
-          R2=$(jq -r '.r2' metrics.json || echo "0.0")
-          echo "mse=$MSE" >> $GITHUB_OUTPUT
-          echo "r2=$R2" >> $GITHUB_OUTPUT
 
       - name: Upload Model and Metrics
         uses: actions/upload-artifact@v4
         with:
           name: model-artifacts
           path: |
-            *.joblib
+            model.joblib
             metrics.json
 
   deploy:
@@ -96,4 +88,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NEW_R2=$(jq -r '.r2' metrics.json)
-          gh variable set BEST_R2_SCORE --body "$NEW_R2" || echo "Failed to update variable"
+          gh variable set BEST_R2_SCORE --body "$NEW_R2" || echo "Failed to update variable, check permissions"
