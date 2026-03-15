@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  variables: write
+  actions: write
 
 env:
   ROLL_NO: "2022BCS0016"
