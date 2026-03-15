@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+  variables: write
+
 env:
   ROLL_NO: "2022BCS0016"
   STUDENT_NAME: "Srinivas Raghav V C"
@@ -112,11 +116,12 @@ jobs:
     
     - name: Update Best R2 Score
       if: steps.compare.outputs.deploy == 'true'
+      continue-on-error: true
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh variable set BEST_R2_SCORE --body "${{ steps.current.outputs.current_r2 }}" --repo ${{ github.repository }}
-        echo "Updated BEST_R2_SCORE to ${{ steps.current.outputs.current_r2 }}"
+        gh variable set BEST_R2_SCORE --body "${{ steps.current.outputs.current_r2 }}" --repo ${{ github.repository }} || echo "Variable update skipped"
+        echo "BEST_R2_SCORE: ${{ steps.current.outputs.current_r2 }}"
     
     - name: Summary
       run: |
@@ -125,7 +130,11 @@ jobs:
         echo "**Student:** Srinivas Raghav V C" >> $GITHUB_STEP_SUMMARY
         echo "**Roll No:** 2022BCS0016" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "### Training Metrics" >> $GITHUB_STEP_SUMMARY
         echo "- R2 Score: ${{ steps.current.outputs.current_r2 }}" >> $GITHUB_STEP_SUMMARY
         echo "- Previous Best: ${{ steps.best.outputs.best_r2 }}" >> $GITHUB_STEP_SUMMARY
         echo "- Deployed: ${{ steps.compare.outputs.deploy }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Docker Image" >> $GITHUB_STEP_SUMMARY
+        echo "- Image: ${{ secrets.DOCKERHUB_USERNAME }}/wine-quality:latest" >> $GITHUB_STEP_SUMMARY
+        echo "- Run Number: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
