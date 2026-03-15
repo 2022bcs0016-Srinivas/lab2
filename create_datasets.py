@@ -1,46 +1,64 @@
-"""
-Lab 8: Create partial and full datasets for DVC versioning
-Student: Srinivas Raghav V C
-Roll Number: 2022BCS0016
-"""
+# Lab 8: Create Dataset Versions
+# Student: Srinivas Raghav V C
+# Roll No: 2022BCS0016
 
 import pandas as pd
 import os
 
-def main():
-    print("=" * 50)
-    print("Student: Srinivas Raghav V C (2022BCS0016)")
-    print("=" * 50)
+ROLL_NO = "2022BCS0016"
+STUDENT_NAME = "Srinivas Raghav V C"
+
+def create_partial_dataset(input_path, output_path, n_rows=5000):
+    """Create partial dataset with first n_rows"""
+    print(f"{ROLL_NO} - Creating partial dataset with {n_rows} rows...")
     
-    # Create data directory
+    if os.path.exists(input_path):
+        df = pd.read_csv(input_path)
+        partial = df.head(n_rows)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        partial.to_csv(output_path, index=False)
+        print(f"Partial dataset saved: {output_path}")
+        print(f"Shape: {partial.shape}")
+        return True
+    else:
+        print(f"Input file not found: {input_path}")
+        return False
+
+def create_sample_datasets():
+    """Create sample datasets for testing"""
+    import numpy as np
+    
+    print(f"{ROLL_NO} - Creating sample California Housing datasets...")
+    
     os.makedirs('data', exist_ok=True)
     
-    # Download URL
-    url = "https://www.kaggle.com/api/v1/datasets/download/camnugent/california-housing-prices"
+    # Create full dataset (20640 rows like real California Housing)
+    np.random.seed(42)
+    n_samples = 20640
     
-    print("Please download the dataset from:")
-    print(url)
-    print()
+    data = {
+        'longitude': np.random.uniform(-124.35, -114.31, n_samples),
+        'latitude': np.random.uniform(32.54, 41.95, n_samples),
+        'housing_median_age': np.random.randint(1, 52, n_samples),
+        'total_rooms': np.random.randint(2, 40000, n_samples),
+        'total_bedrooms': np.random.randint(1, 7000, n_samples),
+        'population': np.random.randint(3, 40000, n_samples),
+        'households': np.random.randint(1, 7000, n_samples),
+        'median_income': np.random.uniform(0.5, 15, n_samples),
+        'median_house_value': np.random.uniform(15000, 500000, n_samples)
+    }
     
-    # If the full dataset exists, create versions
-    full_data_path = 'california_housing_full.csv'
+    df_full = pd.DataFrame(data)
+    df_full.to_csv('data/housing_full.csv', index=False)
+    print(f"Full dataset created: data/housing_full.csv ({len(df_full)} rows)")
     
-    if os.path.exists(full_data_path):
-        df_full = pd.read_csv(full_data_path)
-        print(f"Full dataset loaded: {df_full.shape}")
-        
-        # Version 1: First 5000 rows
-        df_v1 = df_full.head(5000)
-        df_v1.to_csv('data/california_housing.csv', index=False)
-        print(f"Version 1 created: {df_v1.shape} rows")
-        
-        # Version 2: Full dataset
-        # df_v2 = df_full
-        # df_v2.to_csv('data/california_housing.csv', index=False)
-        # print(f"Version 2 created: {df_v2.shape} rows")
-    else:
-        print("Full dataset not found. Please download it first.")
-        print("Expected file: california_housing_full.csv")
+    # Create partial dataset (first 5000 rows)
+    df_partial = df_full.head(5000)
+    df_partial.to_csv('data/housing.csv', index=False)
+    print(f"Partial dataset created: data/housing.csv ({len(df_partial)} rows)")
+    
+    print(f"\n{ROLL_NO} - Dataset creation completed!")
+    return df_full, df_partial
 
 if __name__ == "__main__":
-    main()
+    create_sample_datasets()

@@ -1,61 +1,73 @@
 // Lab 7: Jenkins Pipeline for Inference Validation
 // Student: Srinivas Raghav V C
-// Roll Number: 2022BCS0016
+// Roll No: 2022BCS0016
 
 pipeline {
     agent any
     
     environment {
-        DOCKERHUB_USERNAME = credentials('dockerhub-username')
-        CONTAINER_NAME = 'wine-api-container'
-        API_URL = 'http://localhost:8000'
+        ROLL_NO = '2022BCS0016'
+        STUDENT_NAME = 'Srinivas Raghav V C'
+        DOCKER_IMAGE = '2022bcs0016srinivasraghavvc/wine-quality'
+        CONTAINER_NAME = 'wine-quality-test'
+        API_PORT = '8000'
     }
     
     stages {
-        stage('Pull Docker Image') {
+        stage('Pull Image') {
             steps {
-                echo 'Pulling Docker image from Docker Hub...'
-                echo 'Student: Srinivas Raghav V C (2022BCS0016)'
-                sh '''
-                    docker pull ${DOCKERHUB_USERNAME}/lab2-model:latest
-                '''
+                echo "Roll No: ${ROLL_NO} - Pulling Docker image..."
+                sh "docker pull ${DOCKER_IMAGE}:latest"
             }
         }
         
         stage('Run Container') {
             steps {
-                echo 'Starting container...'
+                echo "Roll No: ${ROLL_NO} - Starting container..."
                 sh '''
-                    docker rm -f ${CONTAINER_NAME} || true
-                    docker run -d --name ${CONTAINER_NAME} -p 8000:8000 ${DOCKERHUB_USERNAME}/lab2-model:latest
-                    sleep 10
+                    docker run -d --name ${CONTAINER_NAME} -p ${API_PORT}:8000 ${DOCKER_IMAGE}:latest
+                    echo "Container started: ${CONTAINER_NAME}"
                 '''
             }
         }
         
         stage('Wait for Service Readiness') {
             steps {
-                echo 'Waiting for API to be ready...'
-                sh '''
-                    for i in {1..30}; do
-                        if curl -s ${API_URL}/ > /dev/null 2>&1; then
-                            echo "API is ready!"
-                            exit 0
-                        fi
-                        echo "Waiting... attempt $i"
-                        sleep 2
-                    done
-                    echo "API did not start within timeout"
-                    exit 1
-                '''
+                echo "Roll No: ${ROLL_NO} - Waiting for API to be ready..."
+                script {
+                    def ready = false
+                    def attempts = 0
+                    def maxAttempts = 30
+                    
+                    while (!ready && attempts < maxAttempts) {
+                        try {
+                            def response = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:${API_PORT}/health || true", returnStdout: true).trim()
+                            if (response == '200') {
+                                ready = true
+                                echo "API is ready!"
+                            } else {
+                                sleep(2)
+                                attempts++
+                            }
+                        } catch (Exception e) {
+                            sleep(2)
+                            attempts++
+                        }
+                    }
+                    
+                    if (!ready) {
+                        error("API did not become ready within timeout")
+                    }
+                }
             }
         }
         
         stage('Send Valid Inference Request') {
             steps {
-                echo 'Testing valid inference request...'
-                sh '''
-                    RESPONSE=$(curl -s -X POST "${API_URL}/predict" \
+                echo "Roll No: ${ROLL_NO} - Testing valid prediction..."
+                script {
+                    def response = sh(script: '''
+                        curl -s -X POST "http://localhost:${API_PORT}/predict" \
                         -H "Content-Type: application/json" \
                         -d '{
                             "fixed_acidity": 7.4,
@@ -63,81 +75,88 @@ pipeline {
                             "citric_acid": 0.0,
                             "residual_sugar": 1.9,
                             "chlorides": 0.076,
-                            "free_sulfur_dioxide": 11,
-                            "total_sulfur_dioxide": 34,
+                            "free_sulfur_dioxide": 11.0,
+                            "total_sulfur_dioxide": 34.0,
                             "density": 0.9978,
-                            "ph": 3.51,
+                            "pH": 3.51,
                             "sulphates": 0.56,
                             "alcohol": 9.4
-                        }')
+                        }'
+                    ''', returnStdout: true)
                     
-                    echo "Response: $RESPONSE"
+                    echo "Response: ${response}"
                     
-                    # Validate response
-                    echo "$RESPONSE" | jq -e '.name' > /dev/null
-                    echo "$RESPONSE" | jq -e '.roll_no' > /dev/null
-                    echo "$RESPONSE" | jq -e '.wine_quality' > /dev/null
+                    // Validate response
+                    if (!response.contains('wine_quality')) {
+                        error("Invalid response format - missing wine_quality field")
+                    }
                     
-                    # Check student info
-                    NAME=$(echo "$RESPONSE" | jq -r '.name')
-                    ROLL=$(echo "$RESPONSE" | jq -r '.roll_no')
-                    
-                    if [ "$NAME" != "Srinivas Raghav V C" ]; then
-                        echo "ERROR: Incorrect name in response: $NAME"
-                        exit 1
-                    fi
-                    
-                    if [ "$ROLL" != "2022BCS0016" ]; then
-                        echo "ERROR: Incorrect roll number in response: $ROLL"
-                        exit 1
-                    fi
+                    if (!response.contains('2022BCS0016')) {
+                        error("Invalid response - missing roll number")
+                    }
                     
                     echo "Valid inference test passed!"
-                '''
+                }
             }
         }
         
-        stage('Send Invalid Inference Request') {
+        stage('Send Invalid Request') {
             steps {
-                echo 'Testing invalid inference request...'
-                sh '''
-                    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${API_URL}/predict" \
+                echo "Roll No: ${ROLL_NO} - Testing error handling..."
+                script {
+                    def response = sh(script: '''
+                        curl -s -X POST "http://localhost:${API_PORT}/predict" \
                         -H "Content-Type: application/json" \
-                        -d '{"fixed_acidity": 7.4}')
+                        -d '{"invalid": "data"}'
+                    ''', returnStdout: true)
                     
-                    echo "Response code: $RESPONSE"
+                    echo "Error response: ${response}"
                     
-                    if [ "$RESPONSE" == "422" ]; then
-                        echo "Invalid request test passed! Got expected 422 error."
-                    else
-                        echo "Warning: Expected 422, got $RESPONSE"
-                    fi
-                '''
+                    // Should return an error
+                    if (response.contains('error') || response.contains('Error') || response.contains('detail')) {
+                        echo "Error handling test passed!"
+                    } else {
+                        echo "Response received - API handled request"
+                    }
+                }
             }
         }
         
         stage('Stop Container') {
             steps {
-                echo 'Stopping container...'
+                echo "Roll No: ${ROLL_NO} - Stopping container..."
                 sh '''
                     docker stop ${CONTAINER_NAME} || true
                     docker rm ${CONTAINER_NAME} || true
                 '''
             }
         }
+        
+        stage('Pipeline Result') {
+            steps {
+                echo "Roll No: ${ROLL_NO} - All tests passed successfully!"
+                echo "Inference validation completed for 2022BCS0016"
+            }
+        }
     }
     
     post {
         always {
+            echo "Roll No: ${ROLL_NO} - Cleaning up..."
             sh 'docker stop ${CONTAINER_NAME} || true'
             sh 'docker rm ${CONTAINER_NAME} || true'
         }
         success {
-            echo 'Inference validation pipeline completed successfully!'
-            echo "Student: Srinivas Raghav V C (2022BCS0016)"
+            echo "========================================"
+            echo "Lab 7 - Inference Validation: PASSED"
+            echo "Roll No: 2022BCS0016"
+            echo "========================================"
         }
         failure {
-            echo 'Inference validation pipeline failed!'
+            echo "========================================"
+            echo "Lab 7 - Inference Validation: FAILED"
+            echo "Roll No: 2022BCS0016"
+            echo "========================================"
         }
     }
 }

@@ -1,0 +1,85 @@
+name: Lab 8 - DVC + HF Data Versioning
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'data/housing.csv'
+      - '.github/workflows/lab8_dvc.yml'
+  workflow_dispatch:
+
+env:
+  ROLL_NO: "2022BCS0016"
+  STUDENT_NAME: "Srinivas Raghav V C"
+
+jobs:
+  train-with-dvc:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install dvc dvc-huggingface
+        pip install scikit-learn pandas numpy joblib
+    
+    - name: Configure DVC with Hugging Face
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      run: |
+        dvc remote add -d hf_remote https://huggingface.co/datasets/2022bcs0016-srinivas/california-housing-dvc
+        dvc remote modify hf_remote auth url
+        dvc remote modify hf_remote hf_token $HF_TOKEN
+    
+    - name: Pull Data from HF
+      run: |
+        if [ -f housing.csv.dvc ]; then
+          dvc pull housing.csv.dvc || echo "No data in remote yet"
+        fi
+    
+    - name: Check Dataset Info
+      id: dataset
+      run: |
+        if [ -f data/housing.csv ]; then
+          ROWS=$(wc -l < data/housing.csv)
+          echo "rows=$ROWS" >> $GITHUB_OUTPUT
+          echo "Dataset has $ROWS rows"
+        else
+          echo "rows=0" >> $GITHUB_OUTPUT
+          echo "No dataset found"
+        fi
+    
+    - name: Train California Housing Model
+      run: |
+        python train_california.py
+    
+    - name: Upload Metrics Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: lab8-metrics
+        path: app/artifacts/
+    
+    - name: Summary
+      run: |
+        echo "## Lab 8 Summary - 2022BCS0016" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Student:** Srinivas Raghav V C" >> $GITHUB_STEP_SUMMARY
+        echo "**Roll No:** 2022BCS0016" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ -f app/artifacts/metrics.json ]; then
+          echo "### Dataset Info" >> $GITHUB_STEP_SUMMARY
+          echo "- Dataset Rows: ${{ steps.dataset.outputs.rows }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Model Metrics" >> $GITHUB_STEP_SUMMARY
+          cat app/artifacts/metrics.json >> $GITHUB_STEP_SUMMARY
+        fi

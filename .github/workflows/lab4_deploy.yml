@@ -1,100 +1,131 @@
-name: Lab 4 Automated Model Deployment (CI/CD)
-
+name: Lab 4 - CI/CD Pipeline
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+
+env:
+  ROLL_NO: "2022BCS0016"
+  STUDENT_NAME: "Srinivas Raghav V C"
 
 jobs:
   train:
-    name: Continuous Integration (Train)
     runs-on: ubuntu-latest
+    outputs:
+      r2_score: ${{ steps.metrics.outputs.r2_score }}
+      mse: ${{ steps.metrics.outputs.mse }}
+    
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas numpy scikit-learn joblib
-
-      - name: Run Training Script
-        run: python train.py
-
-      - name: Display Metrics
-        run: |
-          echo "=========================================="
-          echo "Student: Srinivas Raghav V C"
-          echo "Roll Number: 2022BCS0016"
-          echo "=========================================="
-          cat metrics.json
-          echo "=========================================="
-
-      - name: Upload Model and Metrics
-        uses: actions/upload-artifact@v4
-        with:
-          name: model-artifacts
-          path: |
-            model.joblib
-            metrics.json
-
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Train Model
+      run: python train.py
+    
+    - name: Extract Metrics
+      id: metrics
+      run: |
+        R2=$(cat app/artifacts/metrics.json | jq -r '.r2_score')
+        MSE=$(cat app/artifacts/metrics.json | jq -r '.mse')
+        echo "r2_score=$R2" >> $GITHUB_OUTPUT
+        echo "mse=$MSE" >> $GITHUB_OUTPUT
+        echo "Roll No: $ROLL_NO - R2 Score: $R2, MSE: $MSE"
+    
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: model-artifacts
+        path: app/artifacts/
+  
   deploy:
-    name: Continuous Deployment (Deploy)
     needs: train
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: model-artifacts
-
-      - name: Check Metric Improvement
-        id: check_metric
-        run: |
-          CURRENT_R2=$(jq -r '.r2' metrics.json)
-          BEST_R2="${{ vars.BEST_R2_SCORE }}"
-          echo "=========================================="
-          echo "Student: Srinivas Raghav V C (2022BCS0016)"
-          echo "=========================================="
-          echo "Current R2 Score: $CURRENT_R2"
-          echo "Best R2 Score: ${BEST_R2:-0.0}"
-          if (( $(echo "$CURRENT_R2 > ${BEST_R2:-0.0}" | bc -l) )); then
-            echo "improvement=true" >> $GITHUB_OUTPUT
-            echo "New best model found! R2: $CURRENT_R2"
-          else
-            echo "improvement=false" >> $GITHUB_OUTPUT
-            echo "2022BCS0016----Metric did not improve"
-          fi
-
-      - name: Log in to Docker Hub
-        if: steps.check_metric.outputs.improvement == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and Push Docker Image
-        if: steps.check_metric.outputs.improvement == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/lab2-model:latest
-
-      - name: Update Best R2 Score Variable
-        if: steps.check_metric.outputs.improvement == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          NEW_R2=$(jq -r '.r2' metrics.json)
-          gh variable set BEST_R2_SCORE --body "$NEW_R2"
-          echo "Updated BEST_R2_SCORE to $NEW_R2"
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: model-artifacts
+        path: app/artifacts/
+    
+    - name: Get Current Metrics
+      id: current
+      run: |
+        R2=$(cat app/artifacts/metrics.json | jq -r '.r2_score')
+        echo "current_r2=$R2" >> $GITHUB_OUTPUT
+    
+    - name: Get Best R2 Score
+      id: best
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        BEST=$(gh variable get BEST_R2_SCORE --repo ${{ github.repository }} 2>/dev/null || echo "0.0")
+        echo "best_r2=$BEST" >> $GITHUB_OUTPUT
+        echo "Best R2 Score from variable: $BEST"
+    
+    - name: Compare Metrics
+      id: compare
+      run: |
+        CURRENT=${{ steps.current.outputs.current_r2 }}
+        BEST=${{ steps.best.outputs.best_r2 }}
+        echo "Current R2: $CURRENT"
+        echo "Best R2: $BEST"
+        
+        if (( $(echo "$CURRENT > $BEST" | bc -l) )); then
+          echo "deploy=true" >> $GITHUB_OUTPUT
+          echo "2022BCS0016 ---- Model improved! Deploying new version..."
+        else
+          echo "deploy=false" >> $GITHUB_OUTPUT
+          echo "2022BCS0016 ---- Metric did not improve. Skipping deployment."
+        fi
+    
+    - name: Login to Docker Hub
+      if: steps.compare.outputs.deploy == 'true'
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    
+    - name: Build and Push Docker Image
+      if: steps.compare.outputs.deploy == 'true'
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/wine-quality:latest
+          ${{ secrets.DOCKERHUB_USERNAME }}/wine-quality:${{ github.run_number }}
+    
+    - name: Update Best R2 Score
+      if: steps.compare.outputs.deploy == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh variable set BEST_R2_SCORE --body "${{ steps.current.outputs.current_r2 }}" --repo ${{ github.repository }}
+        echo "Updated BEST_R2_SCORE to ${{ steps.current.outputs.current_r2 }}"
+    
+    - name: Summary
+      run: |
+        echo "## Lab 4 Summary - 2022BCS0016" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Student:** Srinivas Raghav V C" >> $GITHUB_STEP_SUMMARY
+        echo "**Roll No:** 2022BCS0016" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "- R2 Score: ${{ steps.current.outputs.current_r2 }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Previous Best: ${{ steps.best.outputs.best_r2 }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Deployed: ${{ steps.compare.outputs.deploy }}" >> $GITHUB_STEP_SUMMARY

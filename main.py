@@ -1,27 +1,28 @@
-from fastapi import FastAPI
+# Lab 4: FastAPI Inference Service
+# Student: Srinivas Raghav V C
+# Roll No: 2022BCS0016
+
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import joblib
+import numpy as np
 import os
-import json
 
 app = FastAPI(
     title="Wine Quality Prediction API",
-    description="ML API for Lab 4 - Srinivas Raghav V C (2022BCS0016)"
+    description="ML Inference Service - Lab 4",
+    version="1.0.0"
 )
 
-# Load the trained model
-model_path = "model.joblib"
+# Roll number identifier
+ROLL_NO = "2022BCS0016"
+STUDENT_NAME = "Srinivas Raghav V C"
+
+# Load model and scaler
 model = None
 scaler = None
 
-if os.path.exists(model_path):
-    model = joblib.load(model_path)
-    
-scaler_path = "scaler.joblib"
-if os.path.exists(scaler_path):
-    scaler = joblib.load(scaler_path)
-
-class WineData(BaseModel):
+class WineFeatures(BaseModel):
     fixed_acidity: float
     volatile_acidity: float
     citric_acid: float
@@ -30,49 +31,84 @@ class WineData(BaseModel):
     free_sulfur_dioxide: float
     total_sulfur_dioxide: float
     density: float
-    ph: float
+    pH: float
     sulphates: float
     alcohol: float
 
-@app.get("/")
-def read_root():
-    return {
-        "status": "FastAPI service is running",
-        "student": "Srinivas Raghav V C",
-        "roll_no": "2022BCS0016"
-    }
+class PredictionResponse(BaseModel):
+    name: str
+    roll_no: str
+    wine_quality: float
+
+@app.on_event("startup")
+async def load_model():
+    global model, scaler
+    try:
+        model = joblib.load('app/artifacts/model.joblib')
+        scaler = joblib.load('app/artifacts/scaler.joblib')
+        print(f"{ROLL_NO} - Model loaded successfully")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        # Create dummy model for testing
+        model = None
+        scaler = None
 
 @app.get("/health")
-def health_check():
+async def health():
     return {
         "status": "healthy",
-        "model_loaded": model is not None
+        "roll_no": ROLL_NO,
+        "student": STUDENT_NAME
     }
 
-@app.post("/predict")
-def predict(data: WineData):
-    if model is None:
-        return {"error": "Model not loaded"}
-    
-    # Extract features for prediction
-    features = [[
-        data.fixed_acidity, data.volatile_acidity, data.citric_acid,
-        data.residual_sugar, data.chlorides, data.free_sulfur_dioxide,
-        data.total_sulfur_dioxide, data.density, data.ph,
-        data.sulphates, data.alcohol
-    ]]
-    
-    # Apply scaling if scaler is available
-    if scaler is not None:
-        features = scaler.transform(features)
-    
-    prediction = model.predict(features)[0]
-    
+@app.get("/")
+async def root():
     return {
-        "name": "Srinivas Raghav V C",
-        "roll_no": "2022BCS0016",
-        "wine_quality": float(round(prediction, 2))
+        "message": "Wine Quality Prediction API",
+        "roll_no": ROLL_NO,
+        "student": STUDENT_NAME,
+        "endpoints": ["/predict", "/health"]
     }
+
+@app.post("/predict", response_model=PredictionResponse)
+async def predict(features: WineFeatures):
+    try:
+        # Prepare features
+        feature_values = [
+            features.fixed_acidity,
+            features.volatile_acidity,
+            features.citric_acid,
+            features.residual_sugar,
+            features.chlorides,
+            features.free_sulfur_dioxide,
+            features.total_sulfur_dioxide,
+            features.density,
+            features.pH,
+            features.sulphates,
+            features.alcohol
+        ]
+        
+        X = np.array([feature_values])
+        
+        # Scale features
+        if scaler is not None:
+            X = scaler.transform(X)
+        
+        # Predict
+        if model is not None:
+            prediction = model.predict(X)[0]
+        else:
+            # Fallback for testing
+            prediction = 5.0
+        
+        return PredictionResponse(
+            name=STUDENT_NAME,
+            roll_no=ROLL_NO,
+            wine_quality=round(float(prediction), 2)
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

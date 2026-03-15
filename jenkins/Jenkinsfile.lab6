@@ -1,41 +1,39 @@
-// Lab 6: Jenkins Pipeline for Training and Deployment
+// Lab 6: Jenkins Pipeline - CI/CD Pipeline
 // Student: Srinivas Raghav V C
-// Roll Number: 2022BCS0016
+// Roll No: 2022BCS0016
 
 pipeline {
     agent any
     
     environment {
-        DOCKERHUB_USERNAME = credentials('dockerhub-username')
-        DOCKERHUB_TOKEN = credentials('dockerhub-token')
-        BEST_R2_SCORE = '0.0'
+        ROLL_NO = '2022BCS0016'
+        STUDENT_NAME = 'Srinivas Raghav V C'
+        DOCKER_IMAGE = '2022bcs0016srinivasraghavvc/wine-quality'
     }
     
     stages {
         stage('Checkout') {
             steps {
-                echo 'Checking out code...'
-                echo 'Student: Srinivas Raghav V C (2022BCS0016)'
+                echo "Roll No: ${ROLL_NO} - Checking out code..."
                 checkout scm
-                sh 'ls -la'
             }
         }
         
         stage('Setup Python Virtual Environment') {
             steps {
-                echo 'Setting up Python environment...'
+                echo "Roll No: ${ROLL_NO} - Setting up Python environment..."
                 sh '''
                     python3 -m venv venv
                     . venv/bin/activate
                     pip install --upgrade pip
-                    pip install pandas numpy scikit-learn joblib
+                    pip install -r requirements.txt
                 '''
             }
         }
         
         stage('Train Model') {
             steps {
-                echo 'Training model...'
+                echo "Roll No: ${ROLL_NO} - Training model..."
                 sh '''
                     . venv/bin/activate
                     python train.py
@@ -45,30 +43,35 @@ pipeline {
         
         stage('Read Accuracy') {
             steps {
-                echo 'Reading model accuracy...'
+                echo "Roll No: ${ROLL_NO} - Reading metrics..."
                 script {
-                    def metrics = readJSON file: 'metrics.json'
-                    env.CURRENT_R2 = metrics.r2.toString()
+                    def metrics = readJSON file: 'app/artifacts/metrics.json'
+                    env.CURRENT_R2 = metrics.r2_score.toString()
                     env.CURRENT_MSE = metrics.mse.toString()
+                    echo "Current R2 Score: ${env.CURRENT_R2}"
+                    echo "Current MSE: ${env.CURRENT_MSE}"
                 }
-                echo "Current R2 Score: ${env.CURRENT_R2}"
-                echo "Current MSE: ${env.CURRENT_MSE}"
             }
         }
         
         stage('Compare Accuracy') {
             steps {
-                echo 'Comparing accuracy with best score...'
+                echo "Roll No: ${ROLL_NO} - Comparing with best accuracy..."
                 script {
-                    def currentR2 = env.CURRENT_R2.toDouble()
-                    def bestR2 = env.BEST_R2_SCORE.toDouble()
-                    
-                    if (currentR2 > bestR2) {
-                        env.IMPROVEMENT = 'true'
-                        echo "New best model found! R2: ${currentR2} > ${bestR2}"
-                    } else {
-                        env.IMPROVEMENT = 'false'
-                        echo "2022BCS0016----Metric did not improve. R2: ${currentR2} <= ${bestR2}"
+                    withCredentials([string(credentialsId: 'best-accuracy', variable: 'BEST_R2')]) {
+                        env.BEST_R2_SCORE = BEST_R2 ?: '0.0'
+                        echo "Best R2 Score: ${env.BEST_R2_SCORE}"
+                        
+                        def current = env.CURRENT_R2.toDouble()
+                        def best = env.BEST_R2_SCORE.toDouble()
+                        
+                        if (current > best) {
+                            env.DEPLOY = 'true'
+                            echo "Model improved! Deploying..."
+                        } else {
+                            env.DEPLOY = 'false'
+                            echo "2022BCS0016 ---- Metric did not improve"
+                        }
                     }
                 }
             }
@@ -76,25 +79,28 @@ pipeline {
         
         stage('Build Docker Image') {
             when {
-                expression { env.IMPROVEMENT == 'true' }
+                expression { env.DEPLOY == 'true' }
             }
             steps {
-                echo 'Building Docker image...'
-                sh '''
-                    docker build -t ${DOCKERHUB_USERNAME}/lab2-model:latest .
-                '''
+                echo "Roll No: ${ROLL_NO} - Building Docker image..."
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
+                        sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} -t ${DOCKER_IMAGE}:latest ."
+                    }
+                }
             }
         }
         
         stage('Push Docker Image') {
             when {
-                expression { env.IMPROVEMENT == 'true' }
+                expression { env.DEPLOY == 'true' }
             }
             steps {
-                echo 'Pushing Docker image to Docker Hub...'
+                echo "Roll No: ${ROLL_NO} - Pushing Docker image..."
                 sh '''
-                    echo ${DOCKERHUB_TOKEN} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin
-                    docker push ${DOCKERHUB_USERNAME}/lab2-model:latest
+                    docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+                    docker push ${DOCKER_IMAGE}:latest
                 '''
             }
         }
@@ -102,15 +108,14 @@ pipeline {
     
     post {
         always {
-            archiveArtifacts artifacts: 'model.joblib, metrics.json', allowEmptyArchive: true
-            cleanWs()
+            echo "Roll No: ${ROLL_NO} - Archiving artifacts..."
+            archiveArtifacts artifacts: 'app/artifacts/**', allowEmptyArchive: true
         }
         success {
-            echo 'Pipeline completed successfully!'
-            echo "Student: Srinivas Raghav V C (2022BCS0016)"
+            echo "Roll No: ${ROLL_NO} - Pipeline completed successfully!"
         }
         failure {
-            echo 'Pipeline failed!'
+            echo "Roll No: ${ROLL_NO} - Pipeline failed!"
         }
     }
 }

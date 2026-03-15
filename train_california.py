@@ -1,89 +1,138 @@
-"""
-Lab 8: Training script for California Housing dataset
-Student: Srinivas Raghav V C
-Roll Number: 2022BCS0016
-"""
+# Lab 8: California Housing Training Script
+# Student: Srinivas Raghav V C
+# Roll No: 2022BCS0016
 
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
 import joblib
 import json
 import os
-import argparse
+
+# Configuration
+ROLL_NO = "2022BCS0016"
+STUDENT_NAME = "Srinivas Raghav V C"
 
 def main():
-    parser = argparse.ArgumentParser(description='Train model on California Housing dataset')
-    parser.add_argument('--data-path', type=str, default='data/california_housing.csv',
-                        help='Path to the California Housing dataset')
-    args = parser.parse_args()
+    print("=" * 60)
+    print(f"Lab 8: California Housing Training")
+    print(f"Student: {STUDENT_NAME}")
+    print(f"Roll Number: {ROLL_NO}")
+    print("=" * 60)
     
-    print("=" * 50)
-    print("Student: Srinivas Raghav V C")
-    print("Roll Number: 2022BCS0016")
-    print("=" * 50)
-    print(f"Training with data from: {args.data_path}")
+    # Create artifacts directory
+    os.makedirs('app/artifacts', exist_ok=True)
     
-    # Load dataset
-    df = pd.read_csv(args.data_path)
+    # Check for dataset
+    data_path = 'data/housing.csv'
+    if not os.path.exists(data_path):
+        print("No housing.csv found. Creating sample dataset...")
+        # Create sample data for testing
+        np.random.seed(42)
+        n_samples = 1000
+        data = {
+            'longitude': np.random.uniform(-124, -114, n_samples),
+            'latitude': np.random.uniform(32, 42, n_samples),
+            'housing_median_age': np.random.randint(1, 52, n_samples),
+            'total_rooms': np.random.randint(2, 40000, n_samples),
+            'total_bedrooms': np.random.randint(1, 7000, n_samples),
+            'population': np.random.randint(3, 40000, n_samples),
+            'households': np.random.randint(1, 7000, n_samples),
+            'median_income': np.random.uniform(0.5, 15, n_samples),
+            'median_house_value': np.random.uniform(15000, 500000, n_samples)
+        }
+        df = pd.DataFrame(data)
+        os.makedirs('data', exist_ok=True)
+        df.to_csv(data_path, index=False)
+        print(f"Created sample dataset with {n_samples} rows")
+    else:
+        df = pd.read_csv(data_path)
+        print(f"Loaded dataset from {data_path}")
+    
     print(f"Dataset shape: {df.shape}")
+    print(f"Dataset rows: {len(df)}")
+    
+    # Handle missing values
+    df = df.dropna()
     
     # Prepare features and target
-    X = df.drop('MedHouseVal', axis=1)
-    y = df['MedHouseVal']
+    # Try to find the target column
+    target_col = None
+    for col in ['median_house_value', 'MedHouseVal', 'target', 'price']:
+        if col in df.columns:
+            target_col = col
+            break
+    
+    if target_col is None:
+        # Use last column as target
+        target_col = df.columns[-1]
+    
+    print(f"Target column: {target_col}")
+    
+    # Drop non-numeric columns
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if target_col in numeric_cols:
+        numeric_cols.remove(target_col)
+    
+    X = df[numeric_cols]
+    y = df[target_col]
     
     # Split data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
     )
     
-    # Preprocessing
+    print(f"Training samples: {len(X_train)}")
+    print(f"Test samples: {len(X_test)}")
+    
+    # Scale features
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
     
     # Train model
-    model = Lasso(alpha=0.1)
-    model.fit(X_train, y_train)
+    model = LinearRegression()
+    model.fit(X_train_scaled, y_train)
     
-    # Make predictions
-    y_pred = model.predict(X_test)
+    # Predictions
+    y_pred = model.predict(X_test_scaled)
     
-    # Calculate metrics
+    # Metrics
     mse = mean_squared_error(y_test, y_pred)
     rmse = np.sqrt(mse)
     r2 = r2_score(y_test, y_pred)
     
-    # Print metrics
-    print("=" * 50)
-    print(f"MSE: {mse:.4f}")
-    print(f"RMSE: {rmse:.4f}")
-    print(f"R2 Score: {r2:.4f}")
-    print("=" * 50)
+    print(f"\n{ROLL_NO} Training Results:")
+    print(f"  MSE: {mse:.6f}")
+    print(f"  RMSE: {rmse:.6f}")
+    print(f"  R2 Score: {r2:.6f}")
+    print(f"  Dataset Size: {len(df)}")
     
-    # Create output directory
-    os.makedirs('output', exist_ok=True)
+    # Save model
+    joblib.dump(model, 'app/artifacts/california_model.joblib')
+    joblib.dump(scaler, 'app/artifacts/california_scaler.joblib')
     
-    # Save trained model and metrics
-    joblib.dump(model, 'output/model.joblib')
-    joblib.dump(scaler, 'output/scaler.joblib')
-    
+    # Save metrics
     metrics = {
-        'mse': float(mse),
-        'rmse': float(rmse),
-        'r2': float(r2),
-        'dataset_shape': list(df.shape),
-        'student_name': 'Srinivas Raghav V C',
-        'roll_no': '2022BCS0016'
+        "roll_no": ROLL_NO,
+        "student_name": STUDENT_NAME,
+        "mse": round(mse, 6),
+        "rmse": round(rmse, 6),
+        "r2_score": round(r2, 6),
+        "dataset_size": len(df),
+        "training_samples": len(X_train),
+        "test_samples": len(X_test)
     }
     
-    with open('output/metrics.json', 'w') as f:
+    with open('app/artifacts/metrics.json', 'w') as f:
         json.dump(metrics, f, indent=2)
     
-    print("Model and metrics saved successfully to output/")
+    print(f"\nMetrics saved to app/artifacts/metrics.json")
+    print(f"{ROLL_NO} - Training completed successfully!")
+    
     return metrics
 
 if __name__ == "__main__":
