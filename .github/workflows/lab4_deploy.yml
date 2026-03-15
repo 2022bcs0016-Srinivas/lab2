@@ -26,6 +26,15 @@ jobs:
       - name: Run Training Script
         run: python train.py
 
+      - name: Display Metrics
+        run: |
+          echo "=========================================="
+          echo "Student: Srinivas Raghav V C"
+          echo "Roll Number: 2022BCS0016"
+          echo "=========================================="
+          cat metrics.json
+          echo "=========================================="
+
       - name: Upload Model and Metrics
         uses: actions/upload-artifact@v4
         with:
@@ -52,12 +61,15 @@ jobs:
         id: check_metric
         run: |
           CURRENT_R2=$(jq -r '.r2' metrics.json)
-          BEST_R2=${{ vars.BEST_R2_SCORE || '0.0' }}
-          echo "Current R2: $CURRENT_R2"
-          echo "Best R2: $BEST_R2"
-          if (( $(echo "$CURRENT_R2 > $BEST_R2" | bc -l) )); then
+          BEST_R2="${{ vars.BEST_R2_SCORE }}"
+          echo "=========================================="
+          echo "Student: Srinivas Raghav V C (2022BCS0016)"
+          echo "=========================================="
+          echo "Current R2 Score: $CURRENT_R2"
+          echo "Best R2 Score: ${BEST_R2:-0.0}"
+          if (( $(echo "$CURRENT_R2 > ${BEST_R2:-0.0}" | bc -l) )); then
             echo "improvement=true" >> $GITHUB_OUTPUT
-            echo "New best model found!"
+            echo "New best model found! R2: $CURRENT_R2"
           else
             echo "improvement=false" >> $GITHUB_OUTPUT
             echo "2022BCS0016----Metric did not improve"
@@ -67,8 +79,8 @@ jobs:
         if: steps.check_metric.outputs.improvement == 'true'
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and Push Docker Image
         if: steps.check_metric.outputs.improvement == 'true'
@@ -76,16 +88,13 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/lab2-model:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/lab2-model:latest
 
-      - name: Update Best R2 Score
+      - name: Update Best R2 Score Variable
         if: steps.check_metric.outputs.improvement == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NEW_R2=$(jq -r '.r2' metrics.json)
-          curl -L \
-            -X PATCH \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/${{ github.repository }}/actions/variables/BEST_R2_SCORE \
-            -d '{"name":"BEST_R2_SCORE","value":"'"$NEW_R2"'"}'
+          gh variable set BEST_R2_SCORE --body "$NEW_R2"
+          echo "Updated BEST_R2_SCORE to $NEW_R2"

@@ -1,0 +1,143 @@
+// Lab 7: Jenkins Pipeline for Inference Validation
+// Student: Srinivas Raghav V C
+// Roll Number: 2022BCS0016
+
+pipeline {
+    agent any
+    
+    environment {
+        DOCKERHUB_USERNAME = credentials('dockerhub-username')
+        CONTAINER_NAME = 'wine-api-container'
+        API_URL = 'http://localhost:8000'
+    }
+    
+    stages {
+        stage('Pull Docker Image') {
+            steps {
+                echo 'Pulling Docker image from Docker Hub...'
+                echo 'Student: Srinivas Raghav V C (2022BCS0016)'
+                sh '''
+                    docker pull ${DOCKERHUB_USERNAME}/lab2-model:latest
+                '''
+            }
+        }
+        
+        stage('Run Container') {
+            steps {
+                echo 'Starting container...'
+                sh '''
+                    docker rm -f ${CONTAINER_NAME} || true
+                    docker run -d --name ${CONTAINER_NAME} -p 8000:8000 ${DOCKERHUB_USERNAME}/lab2-model:latest
+                    sleep 10
+                '''
+            }
+        }
+        
+        stage('Wait for Service Readiness') {
+            steps {
+                echo 'Waiting for API to be ready...'
+                sh '''
+                    for i in {1..30}; do
+                        if curl -s ${API_URL}/ > /dev/null 2>&1; then
+                            echo "API is ready!"
+                            exit 0
+                        fi
+                        echo "Waiting... attempt $i"
+                        sleep 2
+                    done
+                    echo "API did not start within timeout"
+                    exit 1
+                '''
+            }
+        }
+        
+        stage('Send Valid Inference Request') {
+            steps {
+                echo 'Testing valid inference request...'
+                sh '''
+                    RESPONSE=$(curl -s -X POST "${API_URL}/predict" \
+                        -H "Content-Type: application/json" \
+                        -d '{
+                            "fixed_acidity": 7.4,
+                            "volatile_acidity": 0.7,
+                            "citric_acid": 0.0,
+                            "residual_sugar": 1.9,
+                            "chlorides": 0.076,
+                            "free_sulfur_dioxide": 11,
+                            "total_sulfur_dioxide": 34,
+                            "density": 0.9978,
+                            "ph": 3.51,
+                            "sulphates": 0.56,
+                            "alcohol": 9.4
+                        }')
+                    
+                    echo "Response: $RESPONSE"
+                    
+                    # Validate response
+                    echo "$RESPONSE" | jq -e '.name' > /dev/null
+                    echo "$RESPONSE" | jq -e '.roll_no' > /dev/null
+                    echo "$RESPONSE" | jq -e '.wine_quality' > /dev/null
+                    
+                    # Check student info
+                    NAME=$(echo "$RESPONSE" | jq -r '.name')
+                    ROLL=$(echo "$RESPONSE" | jq -r '.roll_no')
+                    
+                    if [ "$NAME" != "Srinivas Raghav V C" ]; then
+                        echo "ERROR: Incorrect name in response: $NAME"
+                        exit 1
+                    fi
+                    
+                    if [ "$ROLL" != "2022BCS0016" ]; then
+                        echo "ERROR: Incorrect roll number in response: $ROLL"
+                        exit 1
+                    fi
+                    
+                    echo "Valid inference test passed!"
+                '''
+            }
+        }
+        
+        stage('Send Invalid Inference Request') {
+            steps {
+                echo 'Testing invalid inference request...'
+                sh '''
+                    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${API_URL}/predict" \
+                        -H "Content-Type: application/json" \
+                        -d '{"fixed_acidity": 7.4}')
+                    
+                    echo "Response code: $RESPONSE"
+                    
+                    if [ "$RESPONSE" == "422" ]; then
+                        echo "Invalid request test passed! Got expected 422 error."
+                    else
+                        echo "Warning: Expected 422, got $RESPONSE"
+                    fi
+                '''
+            }
+        }
+        
+        stage('Stop Container') {
+            steps {
+                echo 'Stopping container...'
+                sh '''
+                    docker stop ${CONTAINER_NAME} || true
+                    docker rm ${CONTAINER_NAME} || true
+                '''
+            }
+        }
+    }
+    
+    post {
+        always {
+            sh 'docker stop ${CONTAINER_NAME} || true'
+            sh 'docker rm ${CONTAINER_NAME} || true'
+        }
+        success {
+            echo 'Inference validation pipeline completed successfully!'
+            echo "Student: Srinivas Raghav V C (2022BCS0016)"
+        }
+        failure {
+            echo 'Inference validation pipeline failed!'
+        }
+    }
+}

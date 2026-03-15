@@ -1,3 +1,9 @@
+"""
+Lab 8: Training script for California Housing dataset
+Student: Srinivas Raghav V C
+Roll Number: 2022BCS0016
+"""
+
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -7,38 +13,37 @@ from sklearn.metrics import mean_squared_error, r2_score
 import joblib
 import json
 import os
-
-# Configuration
-MODEL_TYPE = "Lasso"
-TEST_SIZE = 0.2
-RANDOM_STATE = 42
-APPLY_SCALING = True
+import argparse
 
 def main():
+    parser = argparse.ArgumentParser(description='Train model on California Housing dataset')
+    parser.add_argument('--data-path', type=str, default='data/california_housing.csv',
+                        help='Path to the California Housing dataset')
+    args = parser.parse_args()
+    
     print("=" * 50)
     print("Student: Srinivas Raghav V C")
     print("Roll Number: 2022BCS0016")
     print("=" * 50)
-    print(f"Starting training with {MODEL_TYPE}...")
+    print(f"Training with data from: {args.data_path}")
     
     # Load dataset
-    df = pd.read_csv('data/winequality-red.csv', sep=';')
+    df = pd.read_csv(args.data_path)
     print(f"Dataset shape: {df.shape}")
     
     # Prepare features and target
-    X = df.drop('quality', axis=1)
-    y = df['quality']
+    X = df.drop('MedHouseVal', axis=1)
+    y = df['MedHouseVal']
     
     # Split data
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
+        X, y, test_size=0.2, random_state=42
     )
     
     # Preprocessing
-    if APPLY_SCALING:
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
     
     # Train model
     model = Lasso(alpha=0.1)
@@ -49,31 +54,36 @@ def main():
     
     # Calculate metrics
     mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
     r2 = r2_score(y_test, y_pred)
     
     # Print metrics
     print("=" * 50)
     print(f"MSE: {mse:.4f}")
+    print(f"RMSE: {rmse:.4f}")
     print(f"R2 Score: {r2:.4f}")
     print("=" * 50)
     
+    # Create output directory
+    os.makedirs('output', exist_ok=True)
+    
     # Save trained model and metrics
-    joblib.dump(model, 'model.joblib')
-    joblib.dump(scaler, 'scaler.joblib')
+    joblib.dump(model, 'output/model.joblib')
+    joblib.dump(scaler, 'output/scaler.joblib')
     
     metrics = {
         'mse': float(mse),
+        'rmse': float(rmse),
         'r2': float(r2),
-        'model_type': MODEL_TYPE,
-        'test_size': TEST_SIZE,
+        'dataset_shape': list(df.shape),
         'student_name': 'Srinivas Raghav V C',
         'roll_no': '2022BCS0016'
     }
     
-    with open('metrics.json', 'w') as f:
+    with open('output/metrics.json', 'w') as f:
         json.dump(metrics, f, indent=2)
     
-    print("Model and metrics saved successfully!")
+    print("Model and metrics saved successfully to output/")
     return metrics
 
 if __name__ == "__main__":

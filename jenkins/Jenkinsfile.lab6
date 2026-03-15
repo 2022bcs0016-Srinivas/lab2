@@ -1,0 +1,116 @@
+// Lab 6: Jenkins Pipeline for Training and Deployment
+// Student: Srinivas Raghav V C
+// Roll Number: 2022BCS0016
+
+pipeline {
+    agent any
+    
+    environment {
+        DOCKERHUB_USERNAME = credentials('dockerhub-username')
+        DOCKERHUB_TOKEN = credentials('dockerhub-token')
+        BEST_R2_SCORE = '0.0'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code...'
+                echo 'Student: Srinivas Raghav V C (2022BCS0016)'
+                checkout scm
+                sh 'ls -la'
+            }
+        }
+        
+        stage('Setup Python Virtual Environment') {
+            steps {
+                echo 'Setting up Python environment...'
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip
+                    pip install pandas numpy scikit-learn joblib
+                '''
+            }
+        }
+        
+        stage('Train Model') {
+            steps {
+                echo 'Training model...'
+                sh '''
+                    . venv/bin/activate
+                    python train.py
+                '''
+            }
+        }
+        
+        stage('Read Accuracy') {
+            steps {
+                echo 'Reading model accuracy...'
+                script {
+                    def metrics = readJSON file: 'metrics.json'
+                    env.CURRENT_R2 = metrics.r2.toString()
+                    env.CURRENT_MSE = metrics.mse.toString()
+                }
+                echo "Current R2 Score: ${env.CURRENT_R2}"
+                echo "Current MSE: ${env.CURRENT_MSE}"
+            }
+        }
+        
+        stage('Compare Accuracy') {
+            steps {
+                echo 'Comparing accuracy with best score...'
+                script {
+                    def currentR2 = env.CURRENT_R2.toDouble()
+                    def bestR2 = env.BEST_R2_SCORE.toDouble()
+                    
+                    if (currentR2 > bestR2) {
+                        env.IMPROVEMENT = 'true'
+                        echo "New best model found! R2: ${currentR2} > ${bestR2}"
+                    } else {
+                        env.IMPROVEMENT = 'false'
+                        echo "2022BCS0016----Metric did not improve. R2: ${currentR2} <= ${bestR2}"
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            when {
+                expression { env.IMPROVEMENT == 'true' }
+            }
+            steps {
+                echo 'Building Docker image...'
+                sh '''
+                    docker build -t ${DOCKERHUB_USERNAME}/lab2-model:latest .
+                '''
+            }
+        }
+        
+        stage('Push Docker Image') {
+            when {
+                expression { env.IMPROVEMENT == 'true' }
+            }
+            steps {
+                echo 'Pushing Docker image to Docker Hub...'
+                sh '''
+                    echo ${DOCKERHUB_TOKEN} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin
+                    docker push ${DOCKERHUB_USERNAME}/lab2-model:latest
+                '''
+            }
+        }
+    }
+    
+    post {
+        always {
+            archiveArtifacts artifacts: 'model.joblib, metrics.json', allowEmptyArchive: true
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+            echo "Student: Srinivas Raghav V C (2022BCS0016)"
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+    }
+}
