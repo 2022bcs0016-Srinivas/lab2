@@ -157,9 +157,9 @@ jobs:
         $repoPath = "/mnt/$drive$rest"
 
         wsl.exe bash -lc "printf '%s' '$dockerToken' | docker login -u '$dockerUser' --password-stdin"
-        wsl.exe bash -lc "cd '$repoPath' && docker build -f Dockerfile.california -t '$imageBase:latest' -t '$imageBase:${{ github.run_number }}' ."
-        wsl.exe bash -lc "docker push '$imageBase:latest'"
-        wsl.exe bash -lc "docker push '$imageBase:${{ github.run_number }}'"
+        wsl.exe bash -lc "cd '$repoPath' && docker build -f Dockerfile.california -t '${imageBase}:latest' -t '${imageBase}:${{ github.run_number }}' ."
+        wsl.exe bash -lc "docker push '${imageBase}:latest'"
+        wsl.exe bash -lc "docker push '${imageBase}:${{ github.run_number }}'"
 
     - name: Update Baseline Variables
       if: steps.compare.outputs.deploy == 'true'
