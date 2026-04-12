@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROLL_NO="${ROLL_NO:-2022BCS0016}"
 CLUSTER_NAME="${CLUSTER_NAME:-mlops-${ROLL_NO,,}}"
+KIND_IMAGE="${KIND_IMAGE:-kindest/node:v1.31.6}"
 NAMESPACE="${NAMESPACE:-mlflow}"
 PG_USER="${PG_USER:-mlflow}"
 PG_DATABASE="${PG_DATABASE:-mlflow}"
@@ -12,7 +13,7 @@ MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD before runni
 PG_PASSWORD="${PG_PASSWORD:?Set PG_PASSWORD before running this script}"
 
 if ! kind get clusters | grep -qx "$CLUSTER_NAME"; then
-  kind create cluster --name "$CLUSTER_NAME"
+  kind create cluster --name "$CLUSTER_NAME" --image "$KIND_IMAGE"
 fi
 
 helm repo add community-charts https://community-charts.github.io/helm-charts >/dev/null 2>&1 || true
