@@ -33,8 +33,6 @@ def main():
     # Load dataset
     df = pd.read_csv('data/winequality-red.csv', sep=';')
     print(f"Dataset shape: {df.shape}")
-    print(f"Training samples: {len(df) - int(len(df) * TEST_SIZE)}")
-    print(f"Test samples: {int(len(df) * TEST_SIZE)}")
     
     # Prepare features and target
     X = df.drop('quality', axis=1)
@@ -44,6 +42,8 @@ def main():
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
     )
+    print(f"Training samples: {len(X_train)}")
+    print(f"Test samples: {len(X_test)}")
     
     # Preprocessing
     if APPLY_SCALING:

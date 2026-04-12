@@ -1,0 +1,26 @@
+# VCS
+.git
+.gitignore
+
+# Python environments and caches
+.venv
+.venv*/
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+
+# Generated output directories
+output
+
+# Local data caches
+.dvc/cache
+.dvc/tmp
+
+# Editor files
+.vscode
+.idea
+.claude

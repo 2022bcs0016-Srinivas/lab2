@@ -6,8 +6,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements_lab8.txt .
+RUN pip install --no-cache-dir -r requirements_lab8.txt && \
+    pip install --no-cache-dir fastapi uvicorn pydantic
 
 COPY . .
 

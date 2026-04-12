@@ -47,7 +47,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements_lab8.txt
-        pip install fastapi uvicorn pydantic
 
     - name: Pull Imported Dataset
       shell: pwsh
@@ -149,13 +148,15 @@ jobs:
       if: steps.compare.outputs.deploy == 'true'
       shell: pwsh
       run: |
-        $env:Path = 'C:\Program Files\Docker\Docker\resources\bin;' + $env:Path
         $imageBase = '${{ secrets.DOCKERHUB_USERNAME }}/california-housing-api'
-        $token = '${{ secrets.DOCKERHUB_TOKEN }}'
-        $token | & 'C:\Program Files\Docker\Docker\resources\bin\docker.exe' login -u '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin
-        & 'C:\Program Files\Docker\Docker\resources\bin\docker.exe' build -f Dockerfile.california -t "${imageBase}:latest" -t "${imageBase}:${{ github.run_number }}" .
-        & 'C:\Program Files\Docker\Docker\resources\bin\docker.exe' push "${imageBase}:latest"
-        & 'C:\Program Files\Docker\Docker\resources\bin\docker.exe' push "${imageBase}:${{ github.run_number }}"
+        $dockerUser = '${{ secrets.DOCKERHUB_USERNAME }}'
+        $dockerToken = '${{ secrets.DOCKERHUB_TOKEN }}'
+        $repoPath = (wsl.exe wslpath -a "$PWD").Trim()
+
+        wsl.exe bash -lc "printf '%s' '$dockerToken' | docker login -u '$dockerUser' --password-stdin"
+        wsl.exe bash -lc "cd '$repoPath' && docker build -f Dockerfile.california -t '$imageBase:latest' -t '$imageBase:${{ github.run_number }}' ."
+        wsl.exe bash -lc "docker push '$imageBase:latest'"
+        wsl.exe bash -lc "docker push '$imageBase:${{ github.run_number }}'"
 
     - name: Update Baseline Variables
       if: steps.compare.outputs.deploy == 'true'
