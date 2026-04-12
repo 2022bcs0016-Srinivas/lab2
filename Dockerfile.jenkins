@@ -24,7 +24,7 @@ RUN curl -fsSL https://get.docker.com -o get-docker.sh && \
     rm get-docker.sh
 
 # Install Python packages used in the labs
-RUN pip3 install --no-cache-dir \
+RUN pip3 install --break-system-packages --no-cache-dir \
     pandas \
     numpy \
     scikit-learn \
