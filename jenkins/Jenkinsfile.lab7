@@ -100,9 +100,7 @@ pipeline {
                         error("Invalid response - unexpected roll number: ${payload.roll_no}")
                     }
 
-                    try {
-                        payload.wine_quality.toString().toBigDecimal()
-                    } catch (Exception e) {
+                    if (!(payload.wine_quality instanceof Number)) {
                         error("Prediction value is not numeric: ${payload.wine_quality}")
                     }
 
