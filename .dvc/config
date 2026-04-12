@@ -1,0 +1,5 @@
+[core]
+    remote = s3remote_2022bcs0016
+['remote "s3remote_2022bcs0016"']
+    url = s3://dvc-2022bcs0016
+    endpointurl = http://127.0.0.1:9000

@@ -1,0 +1,121 @@
+// Lab 6: Jenkins Pipeline - CI/CD Pipeline
+// Student: Srinivas Raghav V C
+// Roll No: 2022BCS0016
+
+pipeline {
+    agent any
+
+    environment {
+        ROLL_NO = '2022BCS0016'
+        STUDENT_NAME = 'Srinivas Raghav V C'
+        DOCKER_IMAGE = '2022bcs0016srinivasraghavvc/wine-quality'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "Roll No: ${ROLL_NO} - Checking out code..."
+                checkout scm
+            }
+        }
+
+        stage('Setup Python Virtual Environment') {
+            steps {
+                echo "Roll No: ${ROLL_NO} - Setting up Python environment..."
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements.txt
+                '''
+            }
+        }
+
+        stage('Train Model') {
+            steps {
+                echo "Roll No: ${ROLL_NO} - Training model..."
+                sh '''
+                    . venv/bin/activate
+                    python train.py
+                '''
+            }
+        }
+
+        stage('Read Accuracy') {
+            steps {
+                echo "Roll No: ${ROLL_NO} - Reading metrics..."
+                script {
+                    def metrics = readJSON file: 'app/artifacts/metrics.json'
+                    env.CURRENT_R2 = metrics.r2_score.toString()
+                    env.CURRENT_MSE = metrics.mse.toString()
+                    echo "Current R2 Score: ${env.CURRENT_R2}"
+                    echo "Current MSE: ${env.CURRENT_MSE}"
+                }
+            }
+        }
+
+        stage('Compare Accuracy') {
+            steps {
+                echo "Roll No: ${ROLL_NO} - Comparing with best accuracy..."
+                script {
+                    withCredentials([string(credentialsId: 'best-accuracy', variable: 'BEST_R2')]) {
+                        env.BEST_R2_SCORE = BEST_R2 ?: '0.0'
+                        echo "Best R2 Score: ${env.BEST_R2_SCORE}"
+
+                        def current = env.CURRENT_R2.toDouble()
+                        def best = env.BEST_R2_SCORE.toDouble()
+
+                        if (current > best) {
+                            env.DEPLOY = 'true'
+                            echo 'Model improved! Deploying...'
+                        } else {
+                            env.DEPLOY = 'false'
+                            echo '2022BCS0016 ---- Metric did not improve'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            when {
+                expression { env.DEPLOY == 'true' }
+            }
+            steps {
+                echo "Roll No: ${ROLL_NO} - Building Docker image..."
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
+                        sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} -t ${DOCKER_IMAGE}:latest ."
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            when {
+                expression { env.DEPLOY == 'true' }
+            }
+            steps {
+                echo "Roll No: ${ROLL_NO} - Pushing Docker image..."
+                sh '''
+                    docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+                    docker push ${DOCKER_IMAGE}:latest
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "Roll No: ${ROLL_NO} - Archiving artifacts..."
+            archiveArtifacts artifacts: 'app/artifacts/**', allowEmptyArchive: true
+        }
+        success {
+            echo "Roll No: ${ROLL_NO} - Pipeline completed successfully!"
+        }
+        failure {
+            echo "Roll No: ${ROLL_NO} - Pipeline failed!"
+        }
+    }
+}

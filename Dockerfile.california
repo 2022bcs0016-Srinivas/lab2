@@ -1,0 +1,22 @@
+# Lab 8: Dockerfile for California Housing API
+# Student: Srinivas Raghav V C
+# Roll No: 2022BCS0016
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p app/artifacts
+
+EXPOSE 8001
+
+LABEL maintainer="2022BCS0016 - Srinivas Raghav V C"
+LABEL roll_no="2022BCS0016"
+LABEL lab="8"
+
+CMD ["uvicorn", "california_api:app", "--host", "0.0.0.0", "--port", "8001"]

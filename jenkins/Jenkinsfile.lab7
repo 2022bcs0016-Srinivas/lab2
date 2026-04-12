@@ -4,7 +4,7 @@
 
 pipeline {
     agent any
-    
+
     environment {
         ROLL_NO = '2022BCS0016'
         STUDENT_NAME = 'Srinivas Raghav V C'
@@ -12,7 +12,7 @@ pipeline {
         CONTAINER_NAME = 'wine-quality-test'
         API_PORT = '8000'
     }
-    
+
     stages {
         stage('Pull Image') {
             steps {
@@ -20,17 +20,18 @@ pipeline {
                 sh "docker pull ${DOCKER_IMAGE}:latest"
             }
         }
-        
+
         stage('Run Container') {
             steps {
                 echo "Roll No: ${ROLL_NO} - Starting container..."
                 sh '''
+                    docker rm -f ${CONTAINER_NAME} || true
                     docker run -d --name ${CONTAINER_NAME} -p ${API_PORT}:8000 ${DOCKER_IMAGE}:latest
                     echo "Container started: ${CONTAINER_NAME}"
                 '''
             }
         }
-        
+
         stage('Wait for Service Readiness') {
             steps {
                 echo "Roll No: ${ROLL_NO} - Waiting for API to be ready..."
@@ -38,7 +39,7 @@ pipeline {
                     def ready = false
                     def attempts = 0
                     def maxAttempts = 30
-                    
+
                     while (!ready && attempts < maxAttempts) {
                         try {
                             def response = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:${API_PORT}/health || true", returnStdout: true).trim()
@@ -54,74 +55,87 @@ pipeline {
                             attempts++
                         }
                     }
-                    
+
                     if (!ready) {
                         error("API did not become ready within timeout")
                     }
                 }
             }
         }
-        
+
         stage('Send Valid Inference Request') {
             steps {
                 echo "Roll No: ${ROLL_NO} - Testing valid prediction..."
                 script {
-                    def response = sh(script: '''
-                        curl -s -X POST "http://localhost:${API_PORT}/predict" \
-                        -H "Content-Type: application/json" \
-                        -d '{
-                            "fixed_acidity": 7.4,
-                            "volatile_acidity": 0.7,
-                            "citric_acid": 0.0,
-                            "residual_sugar": 1.9,
-                            "chlorides": 0.076,
-                            "free_sulfur_dioxide": 11.0,
-                            "total_sulfur_dioxide": 34.0,
-                            "density": 0.9978,
-                            "pH": 3.51,
-                            "sulphates": 0.56,
-                            "alcohol": 9.4
-                        }'
-                    ''', returnStdout: true)
-                    
-                    echo "Response: ${response}"
-                    
-                    // Validate response
-                    if (!response.contains('wine_quality')) {
+                    def status = sh(
+                        script: '''
+                            curl -s -o valid_response.json -w "%{http_code}" \
+                            -X POST "http://localhost:${API_PORT}/predict" \
+                            -H "Content-Type: application/json" \
+                            --data @jenkins/valid_request.json
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    def response = readFile('valid_response.json')
+                    echo "Valid response status: ${status}"
+                    echo "Valid response body: ${response}"
+
+                    if (status != '200') {
+                        error("Expected HTTP 200 for valid inference request, got ${status}")
+                    }
+
+                    def payload = readJSON text: response
+                    if (!payload.containsKey('wine_quality')) {
                         error("Invalid response format - missing wine_quality field")
                     }
-                    
-                    if (!response.contains('2022BCS0016')) {
-                        error("Invalid response - missing roll number")
+                    if (payload.roll_no != ROLL_NO) {
+                        error("Invalid response - unexpected roll number: ${payload.roll_no}")
                     }
-                    
+
+                    try {
+                        payload.wine_quality.toString().toBigDecimal()
+                    } catch (Exception e) {
+                        error("Prediction value is not numeric: ${payload.wine_quality}")
+                    }
+
                     echo "Valid inference test passed!"
                 }
             }
         }
-        
+
         stage('Send Invalid Request') {
             steps {
                 echo "Roll No: ${ROLL_NO} - Testing error handling..."
                 script {
-                    def response = sh(script: '''
-                        curl -s -X POST "http://localhost:${API_PORT}/predict" \
-                        -H "Content-Type: application/json" \
-                        -d '{"invalid": "data"}'
-                    ''', returnStdout: true)
-                    
-                    echo "Error response: ${response}"
-                    
-                    // Should return an error
-                    if (response.contains('error') || response.contains('Error') || response.contains('detail')) {
-                        echo "Error handling test passed!"
-                    } else {
-                        echo "Response received - API handled request"
+                    def status = sh(
+                        script: '''
+                            curl -s -o invalid_response.json -w "%{http_code}" \
+                            -X POST "http://localhost:${API_PORT}/predict" \
+                            -H "Content-Type: application/json" \
+                            --data @jenkins/invalid_request.json
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    def response = readFile('invalid_response.json')
+                    echo "Invalid response status: ${status}"
+                    echo "Invalid response body: ${response}"
+
+                    if (status.toInteger() < 400) {
+                        error("Expected invalid request to fail, got HTTP ${status}")
                     }
+
+                    def payload = readJSON text: response
+                    if (!payload.containsKey('detail')) {
+                        error("Invalid request did not return a meaningful error payload")
+                    }
+
+                    echo "Error handling test passed!"
                 }
             }
         }
-        
+
         stage('Stop Container') {
             steps {
                 echo "Roll No: ${ROLL_NO} - Stopping container..."
@@ -131,7 +145,7 @@ pipeline {
                 '''
             }
         }
-        
+
         stage('Pipeline Result') {
             steps {
                 echo "Roll No: ${ROLL_NO} - All tests passed successfully!"
@@ -139,7 +153,7 @@ pipeline {
             }
         }
     }
-    
+
     post {
         always {
             echo "Roll No: ${ROLL_NO} - Cleaning up..."

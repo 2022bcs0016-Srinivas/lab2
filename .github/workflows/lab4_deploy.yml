@@ -13,6 +13,8 @@ permissions:
 env:
   ROLL_NO: "2022BCS0016"
   STUDENT_NAME: "Srinivas Raghav V C"
+  BEST_R2_VARIABLE: "BEST_R2_SCORE"
+  BEST_MSE_VARIABLE: "BEST_MSE"
 
 jobs:
   train:
@@ -20,91 +22,117 @@ jobs:
     outputs:
       r2_score: ${{ steps.metrics.outputs.r2_score }}
       mse: ${{ steps.metrics.outputs.mse }}
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    
+
     - name: Train Model
       run: python train.py
-    
+
     - name: Extract Metrics
       id: metrics
       run: |
-        R2=$(cat app/artifacts/metrics.json | jq -r '.r2_score')
-        MSE=$(cat app/artifacts/metrics.json | jq -r '.mse')
-        echo "r2_score=$R2" >> $GITHUB_OUTPUT
-        echo "mse=$MSE" >> $GITHUB_OUTPUT
-        echo "Roll No: $ROLL_NO - R2 Score: $R2, MSE: $MSE"
-    
+        python - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        metrics = json.loads(Path('app/artifacts/metrics.json').read_text())
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+            fh.write(f"r2_score={metrics['r2_score']}\n")
+            fh.write(f"mse={metrics['mse']}\n")
+        print(f"Roll No: {os.environ['ROLL_NO']} - R2 Score: {metrics['r2_score']}, MSE: {metrics['mse']}")
+        PY
+
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: model-artifacts
         path: app/artifacts/
-  
+
   deploy:
     needs: train
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Download Artifacts
       uses: actions/download-artifact@v4
       with:
         name: model-artifacts
         path: app/artifacts/
-    
+
     - name: Get Current Metrics
       id: current
       run: |
-        R2=$(cat app/artifacts/metrics.json | jq -r '.r2_score')
-        echo "current_r2=$R2" >> $GITHUB_OUTPUT
-    
-    - name: Get Best R2 Score
+        python - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        metrics = json.loads(Path('app/artifacts/metrics.json').read_text())
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+            fh.write(f"current_r2={metrics['r2_score']}\n")
+            fh.write(f"current_mse={metrics['mse']}\n")
+        PY
+
+    - name: Get Baseline Metrics
       id: best
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.GH_PAT }}
       run: |
-        BEST=$(gh variable get BEST_R2_SCORE --repo ${{ github.repository }} 2>/dev/null || echo "0.0")
-        echo "best_r2=$BEST" >> $GITHUB_OUTPUT
-        echo "Best R2 Score from variable: $BEST"
-    
+        BEST_R2=$(gh variable get "$BEST_R2_VARIABLE" --repo ${{ github.repository }} 2>/dev/null || echo "-999999")
+        BEST_MSE=$(gh variable get "$BEST_MSE_VARIABLE" --repo ${{ github.repository }} 2>/dev/null || echo "999999999")
+        echo "best_r2=$BEST_R2" >> $GITHUB_OUTPUT
+        echo "best_mse=$BEST_MSE" >> $GITHUB_OUTPUT
+        echo "Best R2 Score from variable: $BEST_R2"
+        echo "Best MSE from variable: $BEST_MSE"
+
     - name: Compare Metrics
       id: compare
       run: |
-        CURRENT=${{ steps.current.outputs.current_r2 }}
-        BEST=${{ steps.best.outputs.best_r2 }}
-        echo "Current R2: $CURRENT"
-        echo "Best R2: $BEST"
-        
-        if (( $(echo "$CURRENT > $BEST" | bc -l) )); then
-          echo "deploy=true" >> $GITHUB_OUTPUT
-          echo "2022BCS0016 ---- Model improved! Deploying new version..."
-        else
-          echo "deploy=false" >> $GITHUB_OUTPUT
-          echo "2022BCS0016 ---- Metric did not improve. Skipping deployment."
-        fi
-    
+        python - <<'PY'
+        import os
+
+        current = float('${{ steps.current.outputs.current_r2 }}')
+        current_mse = float('${{ steps.current.outputs.current_mse }}')
+        best = float('${{ steps.best.outputs.best_r2 }}')
+        best_mse = float('${{ steps.best.outputs.best_mse }}')
+        deploy = current > best or (current == best and current_mse < best_mse)
+
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+            fh.write(f"deploy={'true' if deploy else 'false'}\n")
+
+        print(f'Current R2: {current}')
+        print(f'Current MSE: {current_mse}')
+        print(f'Best R2: {best}')
+        print(f'Best MSE: {best_mse}')
+        if deploy:
+            print('2022BCS0016 ---- Model improved across tracked metrics. Deploying new version...')
+        else:
+            print('2022BCS0016 ---- Metrics did not improve. Skipping deployment.')
+        PY
+
     - name: Login to Docker Hub
       if: steps.compare.outputs.deploy == 'true'
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
-    
+
     - name: Build and Push Docker Image
       if: steps.compare.outputs.deploy == 'true'
       uses: docker/build-push-action@v5
@@ -114,16 +142,18 @@ jobs:
         tags: |
           ${{ secrets.DOCKERHUB_USERNAME }}/wine-quality:latest
           ${{ secrets.DOCKERHUB_USERNAME }}/wine-quality:${{ github.run_number }}
-    
-    - name: Update Best R2 Score
+
+    - name: Update Baseline Variables
       if: steps.compare.outputs.deploy == 'true'
       continue-on-error: true
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.GH_PAT }}
       run: |
-        gh variable set BEST_R2_SCORE --body "${{ steps.current.outputs.current_r2 }}" --repo ${{ github.repository }} || echo "Variable update skipped"
+        gh variable set "$BEST_R2_VARIABLE" --body "${{ steps.current.outputs.current_r2 }}" --repo ${{ github.repository }} || echo "R2 variable update skipped"
+        gh variable set "$BEST_MSE_VARIABLE" --body "${{ steps.current.outputs.current_mse }}" --repo ${{ github.repository }} || echo "MSE variable update skipped"
         echo "BEST_R2_SCORE: ${{ steps.current.outputs.current_r2 }}"
-    
+        echo "BEST_MSE: ${{ steps.current.outputs.current_mse }}"
+
     - name: Summary
       run: |
         echo "## Lab 4 Summary - 2022BCS0016" >> $GITHUB_STEP_SUMMARY
@@ -133,7 +163,9 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Training Metrics" >> $GITHUB_STEP_SUMMARY
         echo "- R2 Score: ${{ steps.current.outputs.current_r2 }}" >> $GITHUB_STEP_SUMMARY
-        echo "- Previous Best: ${{ steps.best.outputs.best_r2 }}" >> $GITHUB_STEP_SUMMARY
+        echo "- MSE: ${{ steps.current.outputs.current_mse }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Previous Best R2: ${{ steps.best.outputs.best_r2 }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Previous Best MSE: ${{ steps.best.outputs.best_mse }}" >> $GITHUB_STEP_SUMMARY
         echo "- Deployed: ${{ steps.compare.outputs.deploy }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Docker Image" >> $GITHUB_STEP_SUMMARY

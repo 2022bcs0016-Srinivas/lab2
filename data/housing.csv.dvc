@@ -1,0 +1,13 @@
+md5: ae0db4cbcd9153011cb610911b4076d6
+frozen: true
+deps:
+- checksum: '"83d23deb2616723f4a9a9a124c48606f06c8ed67"'
+  size: 463167
+  hash: md5
+  path: 
+    https://huggingface.co/datasets/srinivas22bcs16/california-housing-dvc/resolve/main/housing_v1.csv
+outs:
+- md5: 3f11c0670d9f784996999534c0478106
+  size: 463167
+  hash: md5
+  path: housing.csv
